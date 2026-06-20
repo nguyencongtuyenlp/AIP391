@@ -62,6 +62,16 @@ class AdaptiveConfEnvStateGTFreeTest(unittest.TestCase):
         env = self._make(True)
         self.assertEqual(env.reset().shape, (ADAPTIVECONF_STATE_DIM,))
 
+    def test_empty_image_no_hotspot(self) -> None:
+        # Anh K=0 (khong co hotspot): caught size 0 -> reshape (0,3,-1) tung crash. Phai chay tron.
+        env = AdaptiveConfEnv(
+            self.det, [], np.zeros((0, 4), np.float32), np.zeros((0, self.C), np.float32),
+            np.zeros((0, self.C, 0), bool), np.zeros((0, self.C), np.float32),
+            self.confs, env_cfg=self.cfg, state_cfg=self.sc,
+        )
+        self.assertEqual(env.reset().shape, (ADAPTIVECONF_STATE_DIM,))
+        self.assertTrue(env.step(0).done)
+
 
 if __name__ == "__main__":
     unittest.main()

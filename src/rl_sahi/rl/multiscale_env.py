@@ -51,7 +51,7 @@ class MultiScaleYieldEnv:
         self.S = int(self.rois.shape[1]) if len(self.cells) else _MAX_SCALES
         self._has_gt = small_gt_caught is not None
         if self._has_gt:
-            self.caught = np.asarray(small_gt_caught, dtype=bool).reshape(len(self.cells), self.S, -1)
+            self.caught = np.asarray(small_gt_caught, dtype=bool).reshape(len(self.cells), self.S, -1) if len(self.cells) else np.zeros((0, self.S, 0), dtype=bool)
             self.N = int(self.caught.shape[2])
         else:
             self.caught = None

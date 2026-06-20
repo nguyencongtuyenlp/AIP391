@@ -52,7 +52,7 @@ class AdaptiveConfEnv:
         self.C = int(self.raw_yields.shape[1]) if len(self.cells) else _MAX_CONFS
         self._has_gt = small_gt_caught is not None
         if self._has_gt:
-            self.caught = np.asarray(small_gt_caught, dtype=bool).reshape(len(self.cells), self.C, -1)
+            self.caught = np.asarray(small_gt_caught, dtype=bool).reshape(len(self.cells), self.C, -1) if len(self.cells) else np.zeros((0, self.C, 0), dtype=bool)
             self.N = int(self.caught.shape[2])
         else:
             self.caught = None
