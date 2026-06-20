@@ -1,0 +1,6 @@
+numpy
+opencv-python
+PyYAML
+# torch: cài bản CUDA cu121 -> pip install torch --index-url https://download.pytorch.org/whl/cu121
+torch
+ultralytics
