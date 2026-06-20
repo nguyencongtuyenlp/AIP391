@@ -92,7 +92,7 @@ def main() -> None:
             break
 
     img = read_image(ip)
-    ctx_color = (150, 150, 150) if args.clean else (0, 200, 0)  # YOLO da thay = mo (context)
+    ctx_color = (0, 200, 0)  # YOLO da thay = XANH LA (de nhin)
     for b in full_boxes:
         cv2.rectangle(img, (int(b[0]), int(b[1])), (int(b[2]), int(b[3])), ctx_color, 1)
     nc = ns = 0
