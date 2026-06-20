@@ -58,6 +58,7 @@ class EnvConfig:
     hotspot_slice_fraction: float = 0.35
     use_residual_ranking: bool = False
     residual_output_conf: float = 0.25
+    fp_weight: float = 0.15  # phat moi FP moi (adaptive-conf): can bang recall <-> precision khi ha nguong
 
 
 @dataclass(slots=True)

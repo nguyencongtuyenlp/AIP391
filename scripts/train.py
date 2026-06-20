@@ -20,6 +20,7 @@ from rl_sahi.rl.batched_trainer import batched_train_dqn
 from rl_sahi.rl.hotspot_trainer import train_hotspot_dqn
 from rl_sahi.rl.yield_trainer import train_yield_dqn
 from rl_sahi.rl.multiscale_trainer import train_multiscale_dqn
+from rl_sahi.rl.adaptiveconf_trainer import train_adaptiveconf_dqn
 
 def _int_tuple(value) -> tuple[int, ...]:
     if isinstance(value, str):
@@ -46,6 +47,8 @@ def main() -> None:
     parser.add_argument("--yield-aware", dest="yield_aware", action="store_true", help="Train YieldAwareHotspotEnv (Cửa 2: action CROP/SKIP, state có yield quan sát; cần pre-compute yield cache).")
     parser.add_argument("--residual", action="store_true", help="Xếp hạng hotspot bằng RESIDUAL density (loại vùng đã-detect) -> ROI chỉ nhắm vùng bỏ lỡ. Cần yield cache build với --residual.")
     parser.add_argument("--multiscale", action="store_true", help="Train MultiScaleYieldEnv (A=free-placement: agent chọn SKIP/CROP@scale). Cần multiscale cache.")
+    parser.add_argument("--adaptive-conf", dest="adaptive_conf", action="store_true", help="Train AdaptiveConfEnv (lever conf: agent chọn SKIP/CROP@conf cao-vừa-thấp để cứu vật conf-thấp). Cần adaptiveconf cache.")
+    parser.add_argument("--fp-weight", type=float, default=None, help="Trọng số phạt FP cho adaptive-conf (cao = giữ conf cao, ít FP; thấp = bạo hơn).")
     args = parser.parse_args()
 
     cfg = load_default_config(args.config, ROOT)
@@ -99,7 +102,17 @@ def main() -> None:
         out_dir = args.out_dir if args.out_dir.is_absolute() else ROOT / args.out_dir
     print(f"[train] out_dir: {out_dir}")
 
-    if args.multiscale:
+    if args.adaptive_conf:
+        env_cfg.use_hotspot_env = True
+        if args.crop_cost is not None:
+            env_cfg.crop_cost = args.crop_cost
+        if args.w_cov is not None:
+            env_cfg.w_cov = args.w_cov
+        if args.fp_weight is not None:
+            env_cfg.fp_weight = args.fp_weight
+        train_fn = train_adaptiveconf_dqn
+        print(f"[train] ADAPTIVE-CONF agent (lever conf): w_cov={env_cfg.w_cov} crop_cost={env_cfg.crop_cost} fp_weight={env_cfg.fp_weight}")
+    elif args.multiscale:
         env_cfg.use_hotspot_env = True
         if args.crop_cost is not None:
             env_cfg.crop_cost = args.crop_cost
