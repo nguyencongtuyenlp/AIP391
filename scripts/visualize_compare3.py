@@ -41,6 +41,7 @@ def _yield_rl_sahi(model, policy, ip, det, icfg, env_cfg, sc, tc, cm):
     env = YieldAwareHotspotEnv(det, None, raw_yields=np.zeros(64, np.float32), real_yields=None, env_cfg=env_cfg, state_cfg=sc)
     full_boxes, full_scores, full_classes = _full_predictions(det, icfg)
     bp = [full_boxes]; spp = [full_scores]; cpp = [full_classes]
+    placed: list = []  # (roi, raw_yield)
     state = env.reset()
     for _ in range(len(env.rois) + 1):
         with torch.no_grad():
@@ -49,14 +50,17 @@ def _yield_rl_sahi(model, policy, ip, det, icfg, env_cfg, sc, tc, cm):
             roi = env.rois[env.i]
             bi, si, ci = run_yolo_on_crop(model, ip, roi, imgsz=icfg.slice_imgsz, conf=icfg.output_conf, iou=icfg.iou, max_det=icfg.max_det, device=icfg.device)
             ci = cm.map_model_classes(ci); bi, si, ci = _filter_classes(bi, si, ci, tc)
-            env.raw_yields[env.i] = int((_iou(bi, full_boxes).max(1) < 0.5).sum()) if len(bi) and len(full_boxes) else len(bi)
+            ny = int((_iou(bi, full_boxes).max(1) < 0.5).sum()) if len(bi) and len(full_boxes) else len(bi)
+            env.raw_yields[env.i] = ny
             bp.append(bi); spp.append(si); cpp.append(ci)
+            placed.append((roi.copy(), ny))
         result = env.step(action)
         state = result.state
         if result.done:
             break
     boxes, _, _ = _merge_predictions(det.image_shape, icfg.merge_iou, bp, spp, cpp)
-    return boxes, [roi.copy() for roi in env.placed], len(env.placed)
+    productive = [roi for roi, y in placed if y > 0]  # bo o +0 (thua)
+    return boxes, productive, len(placed)
 
 
 def _panel(image: np.ndarray, boxes: np.ndarray, caption: str, rois=None, roi_color=(0, 0, 255), roi_t: int = 3) -> np.ndarray:
@@ -102,12 +106,12 @@ def main() -> None:
 
     yb, _, _ = _full_predictions(det, icfg)
     sb, _, _, sn = _predict_fixed_sahi(model, ip, det, icfg, bcfg)
-    rb, rrois, rn = _yield_rl_sahi(model, policy, ip, det, icfg, env_cfg, sc, tc, cm)
+    rb, rprod, rn = _yield_rl_sahi(model, policy, ip, det, icfg, env_cfg, sc, tc, cm)
     sahi_rois = _fixed_grid_rois(det.image_shape, bcfg.fixed_slice_fraction, bcfg.fixed_overlap)
 
     p1 = _panel(image, yb, f"1. YOLO goc: {len(yb)} vat (1 o)")
     p2 = _panel(image, sb, f"2. SAHI (fixed grid): {len(sb)} vat ({sn} o)", rois=sahi_rois, roi_color=(0, 0, 255), roi_t=1)
-    p3 = _panel(image, rb, f"3. RL-SAHI: {len(rb)} vat ({rn} o)", rois=rrois, roi_color=(0, 0, 255), roi_t=3)
+    p3 = _panel(image, rb, f"3. RL-SAHI: {len(rb)} vat ({len(rprod)} o trung / {rn} quet)", rois=rprod, roi_color=(0, 0, 255), roi_t=3)
     gap = np.full((p1.shape[0], args.gap, 3), 255, np.uint8)
     combo = np.hstack([p1, gap, p2, gap, p3])
 
