@@ -19,6 +19,7 @@ from rl_sahi.rl.trainer import TrainConfig, train_dqn
 from rl_sahi.rl.batched_trainer import batched_train_dqn
 from rl_sahi.rl.hotspot_trainer import train_hotspot_dqn
 from rl_sahi.rl.yield_trainer import train_yield_dqn
+from rl_sahi.rl.multiscale_trainer import train_multiscale_dqn
 
 def _int_tuple(value) -> tuple[int, ...]:
     if isinstance(value, str):
@@ -44,6 +45,7 @@ def main() -> None:
     parser.add_argument("--w-cov", type=float, default=None, help="Trọng số coverage cho hotspot agent (cao = cắt bạo hơn).")
     parser.add_argument("--yield-aware", dest="yield_aware", action="store_true", help="Train YieldAwareHotspotEnv (Cửa 2: action CROP/SKIP, state có yield quan sát; cần pre-compute yield cache).")
     parser.add_argument("--residual", action="store_true", help="Xếp hạng hotspot bằng RESIDUAL density (loại vùng đã-detect) -> ROI chỉ nhắm vùng bỏ lỡ. Cần yield cache build với --residual.")
+    parser.add_argument("--multiscale", action="store_true", help="Train MultiScaleYieldEnv (A=free-placement: agent chọn SKIP/CROP@scale). Cần multiscale cache.")
     args = parser.parse_args()
 
     cfg = load_default_config(args.config, ROOT)
@@ -97,7 +99,15 @@ def main() -> None:
         out_dir = args.out_dir if args.out_dir.is_absolute() else ROOT / args.out_dir
     print(f"[train] out_dir: {out_dir}")
 
-    if args.yield_aware:
+    if args.multiscale:
+        env_cfg.use_hotspot_env = True
+        if args.crop_cost is not None:
+            env_cfg.crop_cost = args.crop_cost
+        if args.w_cov is not None:
+            env_cfg.w_cov = args.w_cov
+        train_fn = train_multiscale_dqn
+        print(f"[train] MULTI-SCALE agent (A=free-placement): w_cov={env_cfg.w_cov} crop_cost={env_cfg.crop_cost}")
+    elif args.yield_aware:
         env_cfg.use_hotspot_env = True
         if args.crop_cost is not None:
             env_cfg.crop_cost = args.crop_cost
