@@ -624,7 +624,10 @@ def benchmark_split(
     latency = {key: [] for key in predictions}
     rng = np.random.default_rng(seed)
 
-    for image_path in images:
+    print(f"[benchmark] bat dau {len(images)} anh, methods: {list(predictions.keys())}", flush=True)
+    for img_idx, image_path in enumerate(images):
+        if img_idx % 25 == 0:
+            print(f"[benchmark] ...{img_idx}/{len(images)} anh", flush=True)
         image_id = image_path.stem
         gt_boxes, gt_classes = _read_gt(
             image_path,
