@@ -56,6 +56,8 @@ class EnvConfig:
     w_cov: float = 1.0
     stop_bonus: float = 0.0
     hotspot_slice_fraction: float = 0.35
+    use_residual_ranking: bool = False
+    residual_output_conf: float = 0.25
 
 
 @dataclass(slots=True)

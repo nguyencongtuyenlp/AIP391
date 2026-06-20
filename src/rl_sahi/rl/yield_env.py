@@ -8,7 +8,7 @@ from rl_sahi.common.class_mapping import ClassMapping
 from rl_sahi.rl.env_config import EnvConfig, StepResult
 from rl_sahi.rl.hotspot_env import rank_density_hotspots
 from rl_sahi.rl.state_config import StateConfig
-from rl_sahi.rl.state_maps import build_detection_map
+from rl_sahi.rl.state_maps import build_detection_map, build_ranking_density
 
 NUM_YIELD_ACTIONS = 2  # 0 = CROP, 1 = SKIP
 YIELD_STATE_DIM = 15
@@ -104,7 +104,10 @@ class YieldAwareHotspotEnv:
         self.k_max = int(self.env_cfg.k_max)
         if rois is None:
             grid = int(self.state_cfg.grid_size)
-            density = build_detection_map(detection.boxes, detection.scores, self.image_shape, self.state_cfg)[2]
+            density = build_ranking_density(
+                detection.boxes, detection.scores, self.image_shape, self.state_cfg,
+                use_residual=self.env_cfg.use_residual_ranking, output_conf=self.env_cfg.residual_output_conf,
+            )
             floor = (self.env_cfg.density_potential_min_count - 0.5) / max(self.state_cfg.count_norm, 1.0)
             h, w = self.image_shape
             side = max(1.0, min(h, w) * self.env_cfg.hotspot_slice_fraction)

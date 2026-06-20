@@ -57,6 +57,30 @@ def build_detection_map(
     return np.stack([high_map, proposal_map, proposal_density_map, small_map], axis=0).astype(np.float32)
 
 
+def build_ranking_density(
+    boxes: np.ndarray,
+    scores: np.ndarray,
+    image_shape: tuple[int, int],
+    cfg: StateConfig,
+    use_residual: bool = False,
+    output_conf: float = 0.25,
+) -> np.ndarray:
+    """Mat do de XEP HANG hotspot. use_residual=True -> tru di vung YOLO DA detect
+    (proposal score >= output_conf) khoi proposal_density -> hotspot doi ve vung BO LO.
+    GT-FREE (chi dung score)."""
+    raw = build_detection_map(boxes, scores, image_shape, cfg)[2]
+    if not use_residual:
+        return raw
+    boxes = as_boxes(boxes)
+    scores = np.asarray(scores, dtype=np.float32).reshape(-1)
+    high = scores >= float(output_conf)
+    if not bool(high.any()):
+        return raw
+    values = np.full((int(high.sum()),), 1.0 / max(cfg.count_norm, 1.0), dtype=np.float32)
+    detected = rasterize_boxes(boxes[high], image_shape, cfg.grid_size, values=values, fill_mode="add")
+    return np.clip(raw - detected, 0.0, None).astype(np.float32)
+
+
 def mark_history(history: np.ndarray, roi: np.ndarray, image_shape: tuple[int, int], grid_size: int) -> np.ndarray:
     history = np.asarray(history, dtype=np.float32).reshape(grid_size, grid_size).copy()
     roi_map = rasterize_boxes(np.asarray(roi, dtype=np.float32).reshape(1, 4), image_shape, grid_size)

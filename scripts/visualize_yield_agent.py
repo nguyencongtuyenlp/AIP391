@@ -42,7 +42,11 @@ def main() -> None:
     ap.add_argument("--checkpoint", type=Path, default=ROOT / "runs" / "dqn_yield_full" / "best.pt")
     ap.add_argument("--split", default="test")
     ap.add_argument("--out-dir", type=Path, default=ROOT / "runs" / "report")
+    ap.add_argument("--clean", action="store_true", help="Chi ve ROI THAT (CROP, do) + vat moi; BO het o skip. Anh production cho bao cao.")
+    ap.add_argument("--productive-only", dest="productive_only", action="store_true", help="Chi ve ROI BAT DUOC >=1 vat moi (bo ROI +0). Implies --clean. Anh 'dream': ROI chi o vung co vat bo lo.")
     args = ap.parse_args()
+    if args.productive_only:
+        args.clean = True
 
     cfg = load_default_config(None, ROOT)
     inf = cfg.section("infer"); dev = cfg.optional_str("infer", "device")
@@ -88,27 +92,36 @@ def main() -> None:
             break
 
     img = read_image(ip)
+    ctx_color = (150, 150, 150) if args.clean else (0, 200, 0)  # YOLO da thay = mo (context)
     for b in full_boxes:
-        cv2.rectangle(img, (int(b[0]), int(b[1])), (int(b[2]), int(b[3])), (0, 200, 0), 1)  # xanh mong = YOLO da thay
+        cv2.rectangle(img, (int(b[0]), int(b[1])), (int(b[2]), int(b[3])), ctx_color, 1)
     nc = ns = 0
     for roi, act, yld, nb in decisions:
         if act == "crop":
+            if args.productive_only and yld == 0:
+                continue  # bo ROI khong bat duoc vat moi
             nc += 1
             if nb is not None:
                 for b in nb:
-                    cv2.rectangle(img, (int(b[0]), int(b[1])), (int(b[2]), int(b[3])), (0, 0, 255), 3)  # do = vat MOI that
-            cv2.rectangle(img, (int(roi[0]), int(roi[1])), (int(roi[2]), int(roi[3])), (0, 210, 0), 3)  # ROI CROP = xanh dam
-            cv2.putText(img, f"+{yld}", (int(roi[0]) + 5, int(roi[1]) + 30), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 210, 0), 2)
+                    cv2.rectangle(img, (int(b[0]), int(b[1])), (int(b[2]), int(b[3])), (0, 255, 255), 2)  # vang = vat MOI that bat duoc
+            # ROI THAT = do dam (giac mo "roi do")
+            cv2.rectangle(img, (int(roi[0]), int(roi[1])), (int(roi[2]), int(roi[3])), (0, 0, 255), 3)
+            cv2.putText(img, f"ROI +{yld}", (int(roi[0]) + 5, int(roi[1]) + 30), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2)
         else:
             ns += 1
-            cv2.rectangle(img, (int(roi[0]), int(roi[1])), (int(roi[2]), int(roi[3])), (80, 80, 255), 2)  # ROI SKIP = do nhat
-            cv2.putText(img, "skip", (int(roi[0]) + 5, int(roi[1]) + 28), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (80, 80, 255), 2)
+            if not args.clean:  # che do clean: KHONG ve skip (skip khong phai output)
+                cv2.rectangle(img, (int(roi[0]), int(roi[1])), (int(roi[2]), int(roi[3])), (80, 80, 255), 1)
+                cv2.putText(img, "skip", (int(roi[0]) + 5, int(roi[1]) + 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (80, 80, 255), 1)
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    out = args.out_dir / f"{ip.stem}_yield.jpg"
+    suffix = "_yield_clean" if args.clean else "_yield"
+    out = args.out_dir / f"{ip.stem}{suffix}.jpg"
     cv2.imwrite(str(out), img)
-    print(f"[viz] {ip.stem}: CROP {nc} / SKIP {ns} | YOLO goc {len(full_boxes)} box -> {out}")
-    print(f"[viz] Xanh dam = o CROP (+N vat moi) | Do nhat = o SKIP | Do day = vat moi that bat duoc")
+    print(f"[viz] {ip.stem}: {nc} ROI (CROP) / {ns} skip | YOLO goc {len(full_boxes)} box -> {out}")
+    if args.clean:
+        print("[viz] CLEAN: Do dam = ROI THAT cua RL-SAHI (chi o vung bo lo) | Vang = vat moi bat duoc | Xam mo = YOLO da thay")
+    else:
+        print("[viz] Do dam = ROI (CROP) | Do nhat = candidate bi SKIP (KHONG phai output) | Vang = vat moi")
 
 
 if __name__ == "__main__":

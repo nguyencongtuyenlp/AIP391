@@ -19,7 +19,7 @@ from rl_sahi.eval.benchmark import _filter_classes, _full_predictions, _read_gt
 from rl_sahi.inference.config import InferenceConfig
 from rl_sahi.inference.crops import run_yolo_on_crop
 from rl_sahi.rl.state_config import StateConfig
-from rl_sahi.rl.state_maps import build_detection_map
+from rl_sahi.rl.state_maps import build_ranking_density
 
 # Cache yield moi hotspot (GT-free raw_yield cho STATE + real_yield cho REWARD).
 # Top-K hotspot density la co dinh -> yield cua chung cacheable -> agent train KHONG can chay YOLO.
@@ -36,8 +36,8 @@ def _iou(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     return inter / np.maximum(aa + ab - inter, 1e-6)
 
 
-def _rank_hotspots(det, state_cfg: StateConfig, k_max: int, side_frac: float) -> tuple[np.ndarray, np.ndarray]:
-    dens = build_detection_map(det.boxes, det.scores, det.image_shape, state_cfg)[2]
+def _rank_hotspots(det, state_cfg: StateConfig, k_max: int, side_frac: float, use_residual: bool = False, output_conf: float = 0.25) -> tuple[np.ndarray, np.ndarray]:
+    dens = build_ranking_density(det.boxes, det.scores, det.image_shape, state_cfg, use_residual=use_residual, output_conf=output_conf)
     grid = int(state_cfg.grid_size)
     floor = (2.0 - 0.5) / max(float(state_cfg.count_norm), 1.0)
     h, w = det.image_shape
@@ -67,6 +67,7 @@ def main() -> None:
     parser.add_argument("--k-max", type=int, default=16)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--small-area", type=float, default=0.0022)
+    parser.add_argument("--residual", action="store_true", help="Xep hang hotspot bang RESIDUAL density (tru vung YOLO da detect) -> ROI nham vung bo lo. Ghi vao hotspot_yields_residual/.")
     args = parser.parse_args()
 
     cfg = load_default_config(args.config, ROOT)
@@ -84,8 +85,11 @@ def main() -> None:
     side_frac = float(cfg.section("benchmark").get("fixed_slice_fraction", 0.35))
     model = load_yolo(cfg.path_value("weights"), device=device)
     ir = cfg.path_value("image_root"); crt = cfg.path_value("cache_root"); lr = cfg.path_value("label_root")
-    out_root = crt / "hotspot_yields" / args.split
+    output_conf = float(inf["output_conf"])
+    cache_name = "hotspot_yields_residual" if args.residual else "hotspot_yields"
+    out_root = crt / cache_name / args.split
     out_root.mkdir(parents=True, exist_ok=True)
+    print(f"[precompute] ranking={'RESIDUAL' if args.residual else 'raw'} -> {out_root}")
 
     n = 0
     for ip in iter_images(ir, split=args.split, limit=args.limit):
@@ -93,7 +97,7 @@ def main() -> None:
         if not dp.exists():
             continue
         det = load_detection_cache(dp)
-        rois, cells = _rank_hotspots(det, sc, args.k_max, side_frac)
+        rois, cells = _rank_hotspots(det, sc, args.k_max, side_frac, use_residual=args.residual, output_conf=output_conf)
         if len(rois) == 0:
             np.savez(out_root / f"{ip.stem}.npz", rois=rois, cells=cells, raw_yield=np.zeros(0), real_yield=np.zeros(0))
             n += 1

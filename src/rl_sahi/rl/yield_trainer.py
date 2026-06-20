@@ -24,11 +24,11 @@ from rl_sahi.rl.yield_env import NUM_YIELD_ACTIONS, YieldAwareHotspotEnv
 class YieldEpisodeDataset:
     """Anh co CA detection cache LAN yield cache (rois/raw_yield/real_yield da pre-compute)."""
 
-    def __init__(self, image_root: Path, cache_root: Path, split: str, state_cfg: StateConfig, limit: int | None = None) -> None:
+    def __init__(self, image_root: Path, cache_root: Path, split: str, state_cfg: StateConfig, limit: int | None = None, cache_name: str = "hotspot_yields") -> None:
         self.cache_root = Path(cache_root)
         self.state_cfg = state_cfg
         self.grid = int(state_cfg.grid_size)
-        yroot = self.cache_root / "hotspot_yields" / split
+        yroot = self.cache_root / cache_name / split
         self.items: list[tuple[Path, Path]] = []
         for ip in iter_images(image_root, split=split, limit=limit):
             dp = detection_cache_path(cache_root, split, ip)
@@ -91,11 +91,12 @@ def train_yield_dqn(
 ) -> Path:
     random.seed(cfg.seed); np.random.seed(cfg.seed); torch.manual_seed(cfg.seed)
 
-    dataset = YieldEpisodeDataset(image_root, cache_root, split, state_cfg, limit=limit)
+    cache_name = "hotspot_yields_residual" if env_cfg.use_residual_ranking else "hotspot_yields"
+    dataset = YieldEpisodeDataset(image_root, cache_root, split, state_cfg, limit=limit, cache_name=cache_name)
     val_dataset = None
     if getattr(cfg, "val_split", ""):
         try:
-            val_dataset = YieldEpisodeDataset(image_root, cache_root, cfg.val_split, state_cfg, limit=limit)
+            val_dataset = YieldEpisodeDataset(image_root, cache_root, cfg.val_split, state_cfg, limit=limit, cache_name=cache_name)
         except FileNotFoundError as exc:
             print(f"[yield] validation disabled: {exc}")
 

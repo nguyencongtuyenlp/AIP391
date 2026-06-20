@@ -43,6 +43,7 @@ def main() -> None:
     parser.add_argument("--crop-cost", type=float, default=None, help="crop_cost cho hotspot agent (quét điểm Pareto: 0.1/0.15/0.2/0.3).")
     parser.add_argument("--w-cov", type=float, default=None, help="Trọng số coverage cho hotspot agent (cao = cắt bạo hơn).")
     parser.add_argument("--yield-aware", dest="yield_aware", action="store_true", help="Train YieldAwareHotspotEnv (Cửa 2: action CROP/SKIP, state có yield quan sát; cần pre-compute yield cache).")
+    parser.add_argument("--residual", action="store_true", help="Xếp hạng hotspot bằng RESIDUAL density (loại vùng đã-detect) -> ROI chỉ nhắm vùng bỏ lỡ. Cần yield cache build với --residual.")
     args = parser.parse_args()
 
     cfg = load_default_config(args.config, ROOT)
@@ -102,8 +103,10 @@ def main() -> None:
             env_cfg.crop_cost = args.crop_cost
         if args.w_cov is not None:
             env_cfg.w_cov = args.w_cov
+        if args.residual:
+            env_cfg.use_residual_ranking = True
         train_fn = train_yield_dqn
-        print(f"[train] YIELD-AWARE agent (Cua 2): w_cov={env_cfg.w_cov} crop_cost={env_cfg.crop_cost} k_max={env_cfg.k_max}")
+        print(f"[train] YIELD-AWARE agent (Cua 2): w_cov={env_cfg.w_cov} crop_cost={env_cfg.crop_cost} residual={env_cfg.use_residual_ranking}")
     elif args.hotspot:
         env_cfg.use_hotspot_env = True
         if args.crop_cost is not None:
