@@ -33,6 +33,9 @@ def main() -> None:
     parser.add_argument("--no-require-stop", action="store_true", help="Ablation: accept slice kể cả khi agent không STOP sạch.")
     parser.add_argument("--density-k", type=str, default=None, help="Density-guided crops: danh sach K, vd '2,4,8'. Bo trong = tat.")
     parser.add_argument("--hotspot", action="store_true", help="Checkpoint la HotspotStopAgent (RL adaptive-K) -> method 'rl_hotspot'.")
+    parser.add_argument("--yield-rl", dest="yield_rl", action="store_true", help="Checkpoint la Yield-aware agent -> method 'rl_yield' (chay cung pipeline, do FP+mAP).")
+    parser.add_argument("--random-k", type=str, default=None, help="Baseline doc lap: cat K hotspot ngau nhien, vd '4,8'. Pha tautology agent-subset-density.")
+    parser.add_argument("--seed", type=int, default=42, help="Seed cho random-K + reproducibility (chay nhieu seed de bao mean±std).")
     args = parser.parse_args()
 
     cfg = load_default_config(args.config, ROOT)
@@ -90,6 +93,9 @@ def main() -> None:
         use_cache=bool(infer_cfg.get("use_cache", True)) and not args.no_cache,
         density_k=tuple(int(x) for x in args.density_k.split(",") if x.strip()) if args.density_k else (),
         hotspot=args.hotspot,
+        yield_rl=args.yield_rl,
+        random_k=tuple(int(x) for x in args.random_k.split(",") if x.strip()) if args.random_k else (),
+        seed=args.seed,
     )
     for row in rows:
         print(

@@ -25,6 +25,7 @@ from rl_sahi.rl.slice_env import SliceEnv
 from rl_sahi.rl.state_config import StateConfig
 from rl_sahi.rl.state_maps import build_detection_map
 from rl_sahi.rl.hotspot_env import HotspotEnv
+from rl_sahi.rl.yield_env import YieldAwareHotspotEnv
 
 
 @dataclass(slots=True)
@@ -340,6 +341,71 @@ def _predict_hotspot_rl(
     return boxes, scores, classes, len(rois)
 
 
+def _predict_yield_rl(model, policy, device_t, image_path, det, cfg, env_cfg, state_cfg):
+    """Yield-aware agent (CROP/SKIP, observe live yield) — chay CUNG pipeline GPU nhu cac method khac."""
+    env = YieldAwareHotspotEnv(
+        det, None, raw_yields=np.zeros(64, dtype=np.float32), real_yields=None,
+        env_cfg=env_cfg, state_cfg=state_cfg, target_classes=cfg.target_classes, class_mapping=cfg.class_mapping,
+    )
+    full_boxes, full_scores, full_classes = _full_predictions(det, cfg)
+    boxes_parts = [full_boxes]; scores_parts = [full_scores]; classes_parts = [full_classes]
+    state = env.reset()
+    for _ in range(len(env.rois) + 1):
+        with torch.no_grad():
+            q = policy(torch.from_numpy(state).float().unsqueeze(0).to(device_t))
+            action = int(q.argmax(dim=1).item())
+        if action == 0 and env.i < len(env.rois):
+            roi = env.rois[env.i]
+            boxes_i, scores_i, classes_i = run_yolo_on_crop(model, image_path, roi, imgsz=cfg.slice_imgsz, conf=cfg.output_conf, iou=cfg.iou, max_det=cfg.max_det, device=cfg.device)
+            classes_i = cfg.class_mapping.map_model_classes(classes_i)
+            boxes_i, scores_i, classes_i = _filter_classes(boxes_i, scores_i, classes_i, cfg.target_classes)
+            env.raw_yields[env.i] = int((iou_matrix(boxes_i, full_boxes).max(1) < 0.5).sum()) if len(boxes_i) and len(full_boxes) else len(boxes_i)
+            boxes_parts.append(boxes_i); scores_parts.append(scores_i); classes_parts.append(classes_i)
+        result = env.step(action)
+        state = result.state
+        if result.done:
+            break
+    boxes, scores, classes = _merge_predictions(det.image_shape, cfg.merge_iou, boxes_parts, scores_parts, classes_parts)
+    return boxes, scores, classes, len(env.placed)
+
+
+def _random_k_rois(det, state_cfg, bench_cfg, k, rng):
+    """Baseline DOC LAP: cat K hotspot NGAU NHIEN (trong cell vuot floor) — pha tautology 'agent ⊆ density top-K'."""
+    dens = build_detection_map(det.boxes, det.scores, det.image_shape, state_cfg)[2]
+    floor = (2.0 - 0.5) / max(float(state_cfg.count_norm), 1.0)
+    grid = int(state_cfg.grid_size); h, w = det.image_shape
+    side = max(1.0, min(h, w) * float(bench_cfg.fixed_slice_fraction))
+    cand = np.where(dens.reshape(-1) >= floor)[0]
+    rng.shuffle(cand)
+    rois: list[np.ndarray] = []
+    centers: list[tuple[float, float]] = []
+    for flat_idx in cand:
+        if len(rois) >= int(k):
+            break
+        gy, gx = divmod(int(flat_idx), grid)
+        cx = (gx + 0.5) * w / grid; cy = (gy + 0.5) * h / grid
+        if any(abs(cx - ux) < side * 0.5 and abs(cy - uy) < side * 0.5 for ux, uy in centers):
+            continue
+        x1 = float(np.clip(cx - side / 2.0, 0.0, max(w - side, 0.0)))
+        y1 = float(np.clip(cy - side / 2.0, 0.0, max(h - side, 0.0)))
+        rois.append(np.asarray([x1, y1, min(x1 + side, w), min(y1 + side, h)], dtype=np.float32))
+        centers.append((cx, cy))
+    return rois
+
+
+def _predict_random_k(model, image_path, det, cfg, bench_cfg, state_cfg, k, rng):
+    full_boxes, full_scores, full_classes = _full_predictions(det, cfg)
+    boxes_parts = [full_boxes]; scores_parts = [full_scores]; classes_parts = [full_classes]
+    rois = _random_k_rois(det, state_cfg, bench_cfg, k, rng)
+    for roi in rois:
+        boxes_i, scores_i, classes_i = run_yolo_on_crop(model, image_path, roi, imgsz=cfg.slice_imgsz, conf=cfg.output_conf, iou=cfg.iou, max_det=cfg.max_det, device=cfg.device)
+        classes_i = cfg.class_mapping.map_model_classes(classes_i)
+        boxes_i, scores_i, classes_i = _filter_classes(boxes_i, scores_i, classes_i, cfg.target_classes)
+        boxes_parts.append(boxes_i); scores_parts.append(scores_i); classes_parts.append(classes_i)
+    boxes, scores, classes = _merge_predictions(det.image_shape, cfg.merge_iou, boxes_parts, scores_parts, classes_parts)
+    return boxes, scores, classes, len(rois)
+
+
 def _ap_from_pr(tp: np.ndarray, fp: np.ndarray, total_gt: int) -> float:
     if total_gt == 0 or len(tp) == 0:
         return 0.0
@@ -525,6 +591,9 @@ def benchmark_split(
     use_cache: bool = True,
     density_k: tuple[int, ...] = (),
     hotspot: bool = False,
+    yield_rl: bool = False,
+    random_k: tuple[int, ...] = (),
+    seed: int = 42,
 ) -> list[dict[str, float | str]]:
     images = iter_images(image_root, split=split, limit=limit)
     if not images:
@@ -547,11 +616,13 @@ def benchmark_split(
     state_cfg = checkpoint_data.get("state_cfg_obj", StateConfig())
 
     ground_truth: dict[str, tuple[np.ndarray, np.ndarray, tuple[int, int]]] = {}
-    rl_key = "rl_hotspot" if hotspot else "rl_sahi"
+    rl_key = "rl_yield" if yield_rl else ("rl_hotspot" if hotspot else "rl_sahi")
     density_methods = [f"density_k{int(k)}" for k in density_k]
-    predictions = {"yolo_full": {}, "fixed_grid_sahi": {}, rl_key: {}, **{m: {} for m in density_methods}}
+    random_methods = [f"random_k{int(k)}" for k in random_k]
+    predictions = {"yolo_full": {}, "fixed_grid_sahi": {}, rl_key: {}, **{m: {} for m in density_methods}, **{m: {} for m in random_methods}}
     crops = {key: [] for key in predictions}
     latency = {key: [] for key in predictions}
+    rng = np.random.default_rng(seed)
 
     for image_path in images:
         image_id = image_path.stem
@@ -594,7 +665,9 @@ def benchmark_split(
         crops["fixed_grid_sahi"].append(crop_count)
 
         start = time.perf_counter()
-        if hotspot:
+        if yield_rl:
+            boxes, scores, classes, crop_count = _predict_yield_rl(model, policy, device_t, image_path, det, infer_cfg, env_cfg, state_cfg)
+        elif hotspot:
             boxes, scores, classes, crop_count = _predict_hotspot_rl(model, policy, device_t, image_path, det, infer_cfg, env_cfg, state_cfg)
         else:
             boxes, scores, classes, crop_count = _predict_rl_sahi(model, policy, device_t, image_path, det, infer_cfg, env_cfg, state_cfg)
@@ -608,6 +681,14 @@ def benchmark_split(
             boxes, scores, classes, crop_count = _predict_density_guided(
                 model, image_path, det, infer_cfg, bench_cfg, state_cfg, int(k)
             )
+            predictions[mkey][image_id] = (boxes, scores, classes)
+            latency[mkey].append(time.perf_counter() - start)
+            crops[mkey].append(crop_count)
+
+        for k in random_k:
+            mkey = f"random_k{int(k)}"
+            start = time.perf_counter()
+            boxes, scores, classes, crop_count = _predict_random_k(model, image_path, det, infer_cfg, bench_cfg, state_cfg, int(k), rng)
             predictions[mkey][image_id] = (boxes, scores, classes)
             latency[mkey].append(time.perf_counter() - start)
             crops[mkey].append(crop_count)
