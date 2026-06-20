@@ -17,7 +17,7 @@ from rl_sahi.common.config import load_default_config
 from rl_sahi.common.data import read_image
 from rl_sahi.detection.yolo import load_yolo
 from rl_sahi.eval.benchmark import (
-    BenchmarkConfig, _filter_classes, _full_predictions, _merge_predictions, _predict_fixed_sahi,
+    BenchmarkConfig, _filter_classes, _fixed_grid_rois, _full_predictions, _merge_predictions, _predict_fixed_sahi,
 )
 from rl_sahi.inference.config import InferenceConfig
 from rl_sahi.inference.crops import run_yolo_on_crop
@@ -56,13 +56,16 @@ def _yield_rl_sahi(model, policy, ip, det, icfg, env_cfg, sc, tc, cm):
         if result.done:
             break
     boxes, _, _ = _merge_predictions(det.image_shape, icfg.merge_iou, bp, spp, cpp)
-    return boxes, len(env.placed)
+    return boxes, [roi.copy() for roi in env.placed], len(env.placed)
 
 
-def _panel(image: np.ndarray, boxes: np.ndarray, caption: str) -> np.ndarray:
+def _panel(image: np.ndarray, boxes: np.ndarray, caption: str, rois=None, roi_color=(0, 0, 255), roi_t: int = 3) -> np.ndarray:
     img = image.copy()
     for b in boxes:
         cv2.rectangle(img, (int(b[0]), int(b[1])), (int(b[2]), int(b[3])), (0, 220, 0), 2)
+    if rois is not None:
+        for r in rois:
+            cv2.rectangle(img, (int(r[0]), int(r[1])), (int(r[2]), int(r[3])), roi_color, roi_t)
     h, w = img.shape[:2]
     strip_h = max(46, h // 14)
     strip = np.full((strip_h, w, 3), 28, np.uint8)
@@ -99,11 +102,12 @@ def main() -> None:
 
     yb, _, _ = _full_predictions(det, icfg)
     sb, _, _, sn = _predict_fixed_sahi(model, ip, det, icfg, bcfg)
-    rb, rn = _yield_rl_sahi(model, policy, ip, det, icfg, env_cfg, sc, tc, cm)
+    rb, rrois, rn = _yield_rl_sahi(model, policy, ip, det, icfg, env_cfg, sc, tc, cm)
+    sahi_rois = _fixed_grid_rois(det.image_shape, bcfg.fixed_slice_fraction, bcfg.fixed_overlap)
 
     p1 = _panel(image, yb, f"1. YOLO goc: {len(yb)} vat (1 o)")
-    p2 = _panel(image, sb, f"2. SAHI (fixed grid): {len(sb)} vat ({sn} o)")
-    p3 = _panel(image, rb, f"3. RL-SAHI: {len(rb)} vat ({rn} o)")
+    p2 = _panel(image, sb, f"2. SAHI (fixed grid): {len(sb)} vat ({sn} o)", rois=sahi_rois, roi_color=(0, 0, 255), roi_t=1)
+    p3 = _panel(image, rb, f"3. RL-SAHI: {len(rb)} vat ({rn} o)", rois=rrois, roi_color=(0, 0, 255), roi_t=3)
     gap = np.full((p1.shape[0], args.gap, 3), 255, np.uint8)
     combo = np.hstack([p1, gap, p2, gap, p3])
 
