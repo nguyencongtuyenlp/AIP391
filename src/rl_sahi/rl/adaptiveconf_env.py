@@ -13,9 +13,10 @@ _MAX_CONFS = 3  # so muc conf mac dinh (state dim co dinh theo day)
 # Adaptive-conf (lever moi): moi hotspot density, agent chon SKIP hoac CROP o 1 trong C MUC CONF.
 # Ha conf -> cuu vat-bo-lo o tin hieu thap (YOLO da sinh box, chi bi nguong vut). Reward tru FP
 # de agent chi ha conf khi box that. KHONG fine-tune, KHONG SR — chi RL dieu khien nguong.
-# State GT-FREE + INFER-VALID: density/objness/pos + overlap voi vung da cat + raw-count DA CAT.
-# (raw-count = tong box-moi, GT-free; KHONG dua fp/real vao state vi can GT.)
-ADAPTIVECONF_STATE_DIM = 2 + 2 + 3 + 2 + 1  # base(2)+pos(2)+prog(3)+obs(2)+overlap(1) = 10
+# State GT-FREE + INFER-VALID: density/objness/pos + overlap + raw-count DA CAT + LOWCONF-DENSITY.
+# lowconf = so proposal full-image diem trong [conf_lo, conf_hi) roi vao ROI (GT-free) -> tin hieu
+# "ha conf o day se cuu duoc bao nhieu vat" -> giup agent PHAN BIET o nao dang ha conf.
+ADAPTIVECONF_STATE_DIM = 2 + 2 + 3 + 2 + 1 + 1  # base(2)+pos(2)+prog(3)+obs(2)+overlap(1)+lowconf(1) = 11
 
 
 def num_adaptiveconf_actions(n_confs: int) -> int:
@@ -64,6 +65,24 @@ class AdaptiveConfEnv:
         self.density = np.array([dens[c // self.grid, c % self.grid] / max(self.state_cfg.count_norm, 1.0) for c in self.cells], dtype=np.float32) if self.cells else np.zeros(0, np.float32)
         self.objness = np.array([obj[c // self.grid, c % self.grid] for c in self.cells], dtype=np.float32) if self.cells else np.zeros(0, np.float32)
         self.pos = np.array([[((c % self.grid) + 0.5) / self.grid, ((c // self.grid) + 0.5) / self.grid] for c in self.cells], dtype=np.float32) if self.cells else np.zeros((0, 2), np.float32)
+        self.lowconf = self._lowconf_density(detection)
+
+    def _lowconf_density(self, detection: DetectionCache) -> np.ndarray:
+        """Moi cell: so proposal full-image diem trong [conf_lo, conf_hi) roi tam vao ROI (GT-free)."""
+        out = np.zeros(len(self.cells), np.float32)
+        if not self.cells or len(detection.boxes) == 0:
+            return out
+        lo, hi = float(self.confs.min()), float(self.confs.max())
+        band = (detection.scores >= lo) & (detection.scores < hi)
+        bc = (detection.boxes[:, :2] + detection.boxes[:, 2:]) / 2.0
+        bx, by, sel = bc[band, 0], bc[band, 1], band.sum()
+        if sel == 0:
+            return out
+        for i in range(len(self.cells)):
+            r = self.rois[i]
+            inb = (bx >= r[0]) & (bx <= r[2]) & (by >= r[1]) & (by <= r[3])
+            out[i] = float(inb.sum())
+        return out / _YN
 
     def reset(self) -> np.ndarray:
         self.i = 0
@@ -95,7 +114,8 @@ class AdaptiveConfEnv:
         prog = np.array([len(self.cropped) / n, self.i / n, (len(self.cells) - self.i) / n], np.float32)
         obs = np.array([mean_y, max_y], np.float32)
         ov = np.array([self._cell_overlap(self.i)], np.float32)
-        s = np.concatenate([base, pos, prog, obs, ov])
+        lc = np.array([self.lowconf[self.i] if self.i < len(self.cells) else 0.0], np.float32)
+        s = np.concatenate([base, pos, prog, obs, ov, lc])
         s = s[:ADAPTIVECONF_STATE_DIM] if len(s) >= ADAPTIVECONF_STATE_DIM else np.concatenate([s, np.zeros(ADAPTIVECONF_STATE_DIM - len(s), np.float32)])
         return np.nan_to_num(s, nan=0.0, posinf=0.0, neginf=0.0)
 
