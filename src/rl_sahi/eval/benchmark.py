@@ -23,7 +23,7 @@ from rl_sahi.inference.rollout import rollout_one_slice
 from rl_sahi.rl.checkpoint import load_policy
 from rl_sahi.rl.slice_env import SliceEnv
 from rl_sahi.rl.state_config import StateConfig
-from rl_sahi.rl.state_maps import build_detection_map
+from rl_sahi.rl.state_maps import build_detection_map, build_ranking_density
 from rl_sahi.rl.hotspot_env import HotspotEnv
 from rl_sahi.rl.yield_env import YieldAwareHotspotEnv
 from rl_sahi.rl.multiscale_env import MultiScaleYieldEnv
@@ -262,8 +262,11 @@ def _predict_rl_sahi(
     return boxes, scores, classes, len(accepted_rois)
 
 
-def _density_guided_rois(det: DetectionCache, state_cfg: StateConfig, bench_cfg: BenchmarkConfig, k: int) -> list[np.ndarray]:
-    dens = build_detection_map(det.boxes, det.scores, det.image_shape, state_cfg)[2]
+def _density_guided_rois(det: DetectionCache, state_cfg: StateConfig, bench_cfg: BenchmarkConfig, k: int, residual: bool = False, output_conf: float = 0.25) -> list[np.ndarray]:
+    if residual:
+        dens = build_ranking_density(det.boxes, det.scores, det.image_shape, state_cfg, use_residual=True, output_conf=output_conf)
+    else:
+        dens = build_detection_map(det.boxes, det.scores, det.image_shape, state_cfg)[2]
     grid = int(state_cfg.grid_size)
     floor = (2.0 - 0.5) / max(float(state_cfg.count_norm), 1.0)
     h, w = det.image_shape
@@ -295,12 +298,13 @@ def _predict_density_guided(
     bench_cfg: BenchmarkConfig,
     state_cfg: StateConfig,
     k: int,
+    residual: bool = False,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
     full_boxes, full_scores, full_classes = _full_predictions(det, cfg)
     boxes_parts = [full_boxes]
     scores_parts = [full_scores]
     classes_parts = [full_classes]
-    rois = _density_guided_rois(det, state_cfg, bench_cfg, k)
+    rois = _density_guided_rois(det, state_cfg, bench_cfg, k, residual=residual, output_conf=cfg.output_conf)
     for roi in rois:
         boxes_i, scores_i, classes_i = run_yolo_on_crop(
             model, image_path, roi, imgsz=cfg.slice_imgsz, conf=cfg.output_conf, iou=cfg.iou, max_det=cfg.max_det, device=cfg.device
@@ -700,6 +704,7 @@ def benchmark_split(
     multiscale: bool = False,
     adaptive_conf: bool = False,
     random_k: tuple[int, ...] = (),
+    residual_density_k: tuple[int, ...] = (),
     seed: int = 42,
 ) -> list[dict[str, float | str]]:
     images = iter_images(image_root, split=split, limit=limit)
@@ -726,7 +731,8 @@ def benchmark_split(
     rl_key = "rl_adaptiveconf" if adaptive_conf else ("rl_multiscale" if multiscale else ("rl_yield" if yield_rl else ("rl_hotspot" if hotspot else "rl_sahi")))
     density_methods = [f"density_k{int(k)}" for k in density_k]
     random_methods = [f"random_k{int(k)}" for k in random_k]
-    predictions = {"yolo_full": {}, "fixed_grid_sahi": {}, rl_key: {}, **{m: {} for m in density_methods}, **{m: {} for m in random_methods}}
+    rdensity_methods = [f"rdensity_k{int(k)}" for k in residual_density_k]
+    predictions = {"yolo_full": {}, "fixed_grid_sahi": {}, rl_key: {}, **{m: {} for m in density_methods}, **{m: {} for m in random_methods}, **{m: {} for m in rdensity_methods}}
     crops = {key: [] for key in predictions}
     latency = {key: [] for key in predictions}
     rng = np.random.default_rng(seed)
@@ -803,6 +809,14 @@ def benchmark_split(
             mkey = f"random_k{int(k)}"
             start = time.perf_counter()
             boxes, scores, classes, crop_count = _predict_random_k(model, image_path, det, infer_cfg, bench_cfg, state_cfg, int(k), rng)
+            predictions[mkey][image_id] = (boxes, scores, classes)
+            latency[mkey].append(time.perf_counter() - start)
+            crops[mkey].append(crop_count)
+
+        for k in residual_density_k:
+            mkey = f"rdensity_k{int(k)}"
+            start = time.perf_counter()
+            boxes, scores, classes, crop_count = _predict_density_guided(model, image_path, det, infer_cfg, bench_cfg, state_cfg, int(k), residual=True)
             predictions[mkey][image_id] = (boxes, scores, classes)
             latency[mkey].append(time.perf_counter() - start)
             crops[mkey].append(crop_count)
