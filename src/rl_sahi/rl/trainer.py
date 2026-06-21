@@ -295,6 +295,7 @@ def train_dqn(
     np.random.seed(cfg.seed)
     torch.manual_seed(cfg.seed)
 
+    need_hard = not env_cfg.use_gtfree_reward  # GT-free reward khong can hard-region cache
     dataset = CachedEpisodeDataset(
         image_root=image_root,
         cache_root=cache_root,
@@ -302,6 +303,7 @@ def train_dqn(
         limit=limit,
         preload=cfg.preload_cache,
         detection_metadata=detection_metadata,
+        require_hard_region=need_hard,
     )
     val_dataset = None
     try:
@@ -309,6 +311,7 @@ def train_dqn(
             image_root=image_root,
             cache_root=cache_root,
             split=cfg.val_split,
+            require_hard_region=need_hard,
             limit=limit,
             preload=cfg.preload_cache,
             detection_metadata=detection_metadata,

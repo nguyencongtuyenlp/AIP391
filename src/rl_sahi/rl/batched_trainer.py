@@ -60,12 +60,13 @@ def batched_train_dqn(
     np.random.seed(cfg.seed)
     torch.manual_seed(cfg.seed)
 
-    dataset = CachedEpisodeDataset(image_root=image_root, cache_root=cache_root, split=split, limit=limit, preload=cfg.preload_cache, detection_metadata=detection_metadata)
-    
+    need_hard = not env_cfg.use_gtfree_reward  # GT-free reward khong can hard-region cache
+    dataset = CachedEpisodeDataset(image_root=image_root, cache_root=cache_root, split=split, limit=limit, preload=cfg.preload_cache, detection_metadata=detection_metadata, require_hard_region=need_hard)
+
     val_dataset = None
     if getattr(cfg, "val_split", ""):
         try:
-            val_dataset = CachedEpisodeDataset(image_root=image_root, cache_root=cache_root, split=cfg.val_split, limit=limit, preload=cfg.preload_cache, detection_metadata=detection_metadata)
+            val_dataset = CachedEpisodeDataset(image_root=image_root, cache_root=cache_root, split=cfg.val_split, limit=limit, preload=cfg.preload_cache, detection_metadata=detection_metadata, require_hard_region=need_hard)
         except FileNotFoundError as exc:
             print(f"[batched_train] validation disabled: {exc}")
 
