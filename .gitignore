@@ -5,3 +5,4 @@ data/
 runs/
 *.pt
 !yolo11s.pt
+*.tar
