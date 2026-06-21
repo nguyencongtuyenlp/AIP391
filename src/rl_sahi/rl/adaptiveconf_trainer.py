@@ -40,7 +40,11 @@ class AdaptiveConfEpisodeDataset:
     def _load(self, dp: Path, yp: Path):
         det = load_detection_cache(dp)
         z = np.load(yp)
-        return det, z["cells"].tolist(), z["rois"], z["raw_yield"], z["small_gt_caught"], z["fp"], z["confs"]
+        fp_grid = None
+        if "fp_grid" in z and "fp_grid_shape" in z and len(z["cells"]):
+            shape = tuple(int(x) for x in z["fp_grid_shape"])
+            fp_grid = np.unpackbits(z["fp_grid"])[: int(np.prod(shape))].astype(bool).reshape(shape)
+        return det, z["cells"].tolist(), z["rois"], z["raw_yield"], z["small_gt_caught"], z["fp"], z["confs"], fp_grid
 
     def random_episode(self):
         return self._load(*random.choice(self.items))
@@ -50,8 +54,8 @@ class AdaptiveConfEpisodeDataset:
 
 
 def _make_env(epi, env_cfg, state_cfg) -> AdaptiveConfEnv:
-    det, cells, rois, raw, caught, fp, confs = epi
-    return AdaptiveConfEnv(det, cells, rois, raw, caught, fp, confs, env_cfg=env_cfg, state_cfg=state_cfg)
+    det, cells, rois, raw, caught, fp, confs, fp_grid = epi
+    return AdaptiveConfEnv(det, cells, rois, raw, caught, fp, confs, env_cfg=env_cfg, state_cfg=state_cfg, fp_grid=fp_grid)
 
 
 def _greedy_eval(policy, dataset, env_cfg, state_cfg, device, episodes):

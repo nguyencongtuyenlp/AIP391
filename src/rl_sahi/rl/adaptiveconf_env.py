@@ -41,6 +41,7 @@ class AdaptiveConfEnv:
         confs: np.ndarray,
         env_cfg: EnvConfig | None = None,
         state_cfg: StateConfig | None = None,
+        fp_grid: np.ndarray | None = None,  # (K, C, G, G) bool — raster FP de dedup qua ROI
     ) -> None:
         self.env_cfg = env_cfg or EnvConfig()
         self.state_cfg = state_cfg or StateConfig()
@@ -59,6 +60,8 @@ class AdaptiveConfEnv:
             self.caught = None
             self.N = 0
         self.fp = np.asarray(fp, dtype=np.float32).reshape(len(self.cells), self.C) if (fp is not None and len(self.cells)) else np.zeros((len(self.cells), self.C), np.float32)
+        self.use_fp_dedup = bool(self.env_cfg.use_fp_dedup) and fp_grid is not None and len(self.cells) > 0
+        self.fp_grid = np.asarray(fp_grid, dtype=bool).reshape(len(self.cells), self.C, self.grid, self.grid) if self.use_fp_dedup else None
         # dac trung tinh GT-free
         dens = build_detection_map(detection.boxes, detection.scores, self.image_shape, self.state_cfg)[2]
         obj = detection.objectness_map[0] if detection.objectness_map.ndim == 3 else detection.objectness_map
@@ -90,6 +93,7 @@ class AdaptiveConfEnv:
         self.observed_raw: list[float] = []
         self.covered = np.zeros(self.N, dtype=bool)
         self.coverage_grid = np.zeros((self.grid, self.grid), dtype=np.float32)
+        self.fp_covered = np.zeros((self.grid, self.grid), dtype=bool)
         self.placed: list[np.ndarray] = []
         return self._state()
 
@@ -134,7 +138,12 @@ class AdaptiveConfEnv:
             j = a - 1
             if self._has_gt:
                 new = self.caught[self.i, j] & ~self.covered
-                reward = self.env_cfg.w_cov * float(new.sum()) - self.env_cfg.fp_weight * float(self.fp[self.i, j]) - self.env_cfg.crop_cost
+                if self.use_fp_dedup:
+                    new_fp = float((self.fp_grid[self.i, j] & ~self.fp_covered).sum())  # FP dedup qua ROI -> khop per-image
+                    self.fp_covered |= self.fp_grid[self.i, j]
+                else:
+                    new_fp = float(self.fp[self.i, j])
+                reward = self.env_cfg.w_cov * float(new.sum()) - self.env_cfg.fp_weight * new_fp - self.env_cfg.crop_cost
                 self.covered |= self.caught[self.i, j]
             else:
                 reward = -self.env_cfg.crop_cost

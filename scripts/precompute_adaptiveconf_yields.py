@@ -89,6 +89,7 @@ def main() -> None:
         real_yield = np.zeros((K, C), dtype=np.int32)
         raw_yield = np.zeros((K, C), dtype=np.int32)  # GT-free: tong box-moi (real+nhieu) -> observed signal infer-valid
         fp = np.zeros((K, C), dtype=np.int32)
+        fp_grid = np.zeros((K, C, grid, grid), dtype=bool)  # raster tam FP -> dedup FP qua ROI chong lan (khop FP per-image)
         N = 0
         caught = np.zeros((K, C, 0), dtype=bool)
         if K > 0:
@@ -118,9 +119,16 @@ def main() -> None:
                         c_mask = _iou(small_gt, nb).max(1) >= 0.5
                         caught[i, jc] = c_mask
                         real_yield[i, jc] = int(c_mask.sum())
-                    # FP = box moi khong khop GT nao
-                    fp[i, jc] = int((_iou(nb, gt).max(1) < 0.5).sum()) if len(gt) else len(nb)
-        np.savez(out_root / f"{ip.stem}.npz", rois=rois, cells=np.asarray(cells, dtype=np.int32), confs=np.asarray(confs, dtype=np.float32), real_yield=real_yield, raw_yield=raw_yield, fp=fp, small_gt_caught=caught)
+                    # FP = box moi khong khop GT nao; raster tam FP de dedup qua ROI
+                    fp_mask = (_iou(nb, gt).max(1) < 0.5) if len(gt) else np.ones(len(nb), bool)
+                    fp[i, jc] = int(fp_mask.sum())
+                    fpb = nb[fp_mask]
+                    if len(fpb):
+                        fc = (fpb[:, :2] + fpb[:, 2:]) / 2.0
+                        gxx = np.clip((fc[:, 0] / max(w, 1) * grid).astype(int), 0, grid - 1)
+                        gyy = np.clip((fc[:, 1] / max(h, 1) * grid).astype(int), 0, grid - 1)
+                        fp_grid[i, jc, gyy, gxx] = True
+        np.savez(out_root / f"{ip.stem}.npz", rois=rois, cells=np.asarray(cells, dtype=np.int32), confs=np.asarray(confs, dtype=np.float32), real_yield=real_yield, raw_yield=raw_yield, fp=fp, fp_grid=np.packbits(fp_grid) if K else fp_grid, fp_grid_shape=np.asarray(fp_grid.shape, dtype=np.int32), small_gt_caught=caught)
         n += 1
         if n % 100 == 0:
             print(f"[adaptiveconf] {args.split}: {n} anh", flush=True)

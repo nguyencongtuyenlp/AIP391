@@ -50,6 +50,7 @@ def main() -> None:
     parser.add_argument("--multiscale", action="store_true", help="Train MultiScaleYieldEnv (A=free-placement: agent chọn SKIP/CROP@scale). Cần multiscale cache.")
     parser.add_argument("--adaptive-conf", dest="adaptive_conf", action="store_true", help="Train AdaptiveConfEnv (lever conf: agent chọn SKIP/CROP@conf cao-vừa-thấp để cứu vật conf-thấp). Cần adaptiveconf cache.")
     parser.add_argument("--fp-weight", type=float, default=None, help="Trọng số phạt FP cho adaptive-conf (cao = giữ conf cao, ít FP; thấp = bạo hơn).")
+    parser.add_argument("--fp-dedup", dest="fp_dedup", action="store_true", help="Phạt FP dedup qua grid (khớp FP per-image, sửa thổi-phồng x1.58). Cần cache có fp_grid.")
     args = parser.parse_args()
 
     cfg = load_default_config(args.config, ROOT)
@@ -113,8 +114,10 @@ def main() -> None:
             env_cfg.w_cov = args.w_cov
         if args.fp_weight is not None:
             env_cfg.fp_weight = args.fp_weight
+        if args.fp_dedup:
+            env_cfg.use_fp_dedup = True
         train_fn = train_adaptiveconf_dqn
-        print(f"[train] ADAPTIVE-CONF agent (lever conf): w_cov={env_cfg.w_cov} crop_cost={env_cfg.crop_cost} fp_weight={env_cfg.fp_weight}")
+        print(f"[train] ADAPTIVE-CONF agent (lever conf): w_cov={env_cfg.w_cov} crop_cost={env_cfg.crop_cost} fp_weight={env_cfg.fp_weight} fp_dedup={env_cfg.use_fp_dedup}")
     elif args.multiscale:
         env_cfg.use_hotspot_env = True
         if args.crop_cost is not None:
