@@ -36,6 +36,7 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--device", default=None)
     parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--lr", type=float, default=None, help="Override learning rate (adaptive-conf can lr=1e-4 qua thap -> Q ko fit -> collapse; dung 5e-4).")
     parser.add_argument("--overfit", action="store_true", help="Overfit 1 ảnh (sanity Karpathy): limit=1, tắt val+benchmark eval.")
     parser.add_argument("--trust-cache", action="store_true", help="Bỏ qua kiểm tra metadata cache (dùng cache có sẵn dù file weights đã mất/đổi).")
     parser.add_argument("--eval-benchmark-images", type=int, default=None, help="Số ảnh val cho benchmark eval định kỳ (0 = tắt).")
@@ -65,6 +66,8 @@ def main() -> None:
         train_cfg.episodes = args.episodes
     if args.seed is not None:
         train_cfg.seed = args.seed
+    if args.lr is not None:
+        train_cfg.lr = args.lr
     if args.overfit:
         args.limit = args.limit or 1
         train_cfg.eval_benchmark_images = 0
