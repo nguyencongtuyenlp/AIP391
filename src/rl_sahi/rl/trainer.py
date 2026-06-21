@@ -175,7 +175,7 @@ def _greedy_eval_episode(
     class_mapping: ClassMapping | None = None,
 ) -> tuple[int, int, int]:
     previous_rois: list[np.ndarray] = []
-    previous_covered = np.zeros((len(as_boxes(hard.hard_boxes)),), dtype=bool)
+    previous_covered = np.zeros((len(as_boxes(hard.hard_boxes)) if hard is not None else 0,), dtype=bool)
     accepted_slices = 0
     for _slice_idx in range(env_cfg.max_slices):
         prev_arr = np.stack(previous_rois).astype(np.float32) if previous_rois else np.zeros((0, 4), dtype=np.float32)
@@ -415,7 +415,7 @@ def train_dqn(
         for episode in range(1, cfg.episodes + 1):
             det, hard = dataset.random_episode()
             previous_rois: list[np.ndarray] = []
-            previous_covered = np.zeros((len(as_boxes(hard.hard_boxes)),), dtype=bool)
+            previous_covered = np.zeros((len(as_boxes(hard.hard_boxes)) if hard is not None else 0,), dtype=bool)
             total_reward = 0.0
             total_steps = 0
             accepted_slices = 0

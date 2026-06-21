@@ -134,7 +134,7 @@ def batched_train_dqn(
         if cfg.use_curriculum:
             curriculum_frac = min(float(global_step) / max(cfg.curriculum_steps, 1), 1.0)
             current_max_slices = max(1, int(env_cfg.max_slices * curriculum_frac))
-        previous_covered = np.zeros((len(as_boxes(hard.hard_boxes)),), dtype=bool)
+        previous_covered = np.zeros((len(as_boxes(hard.hard_boxes)) if hard is not None else 0,), dtype=bool)  # GT-free: hard=None -> 0 vung-kho
         env = SliceEnv(det, hard, env_cfg=env_cfg, state_cfg=state_cfg, previous_rois=np.zeros((0, 4), dtype=np.float32), previous_covered=previous_covered, target_classes=target_classes, class_mapping=class_mapping)
         return EnvWorker(
             episode=episode, det=det, hard=hard, previous_rois=[], previous_covered=previous_covered, current_max_slices=current_max_slices, slice_idx=0,
