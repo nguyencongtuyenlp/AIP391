@@ -51,6 +51,8 @@ def main() -> None:
     parser.add_argument("--adaptive-conf", dest="adaptive_conf", action="store_true", help="Train AdaptiveConfEnv (lever conf: agent chọn SKIP/CROP@conf cao-vừa-thấp để cứu vật conf-thấp). Cần adaptiveconf cache.")
     parser.add_argument("--fp-weight", type=float, default=None, help="Trọng số phạt FP cho adaptive-conf (cao = giữ conf cao, ít FP; thấp = bạo hơn).")
     parser.add_argument("--fp-dedup", dest="fp_dedup", action="store_true", help="Phạt FP dedup qua grid (khớp FP per-image, sửa thổi-phồng x1.58). Cần cache có fp_grid.")
+    parser.add_argument("--gtfree-reward", dest="gtfree_reward", action="store_true", help="SliceEnv (agent di-chuyển): reward GT-free (density+objectness) thay hard_boxes(GT) -> bỏ train/infer gap.")
+    parser.add_argument("--boundary-fix", dest="boundary_fix", action="store_true", help="SliceEnv: ROI kẹp biên thì không kết thúc + phạt oan (chống xoay chong chóng).")
     args = parser.parse_args()
 
     cfg = load_default_config(args.config, ROOT)
@@ -69,6 +71,10 @@ def main() -> None:
         train_cfg.seed = args.seed
     if args.lr is not None:
         train_cfg.lr = args.lr
+    if args.gtfree_reward:
+        env_cfg.use_gtfree_reward = True
+    if args.boundary_fix:
+        env_cfg.use_boundary_fix = True
     if args.overfit:
         args.limit = args.limit or 1
         train_cfg.eval_benchmark_images = 0

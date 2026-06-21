@@ -60,6 +60,9 @@ class EnvConfig:
     residual_output_conf: float = 0.25
     fp_weight: float = 0.15  # phat moi FP moi (adaptive-conf): can bang recall <-> precision khi ha nguong
     use_fp_dedup: bool = False  # True: phat FP dedup qua grid (khop FP per-image, fix thoi-phong x1.58)
+    use_gtfree_reward: bool = False  # SliceEnv: reward dung tin hieu QUAN SAT (density+objectness) thay hard_boxes(GT) -> bo train/infer gap
+    gtfree_gain_weight: float = 5.0  # trong so reward GT-free (density_potential trong [0,1] -> nhan len)
+    use_boundary_fix: bool = False   # SliceEnv: ROI bi kep o bien -> KHONG ket thuc + phat nang oan (chong 'xoay chong chong')
 
 
 @dataclass(slots=True)

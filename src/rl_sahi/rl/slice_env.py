@@ -87,8 +87,12 @@ class SliceEnv:
 
         reward, info = self._reward(action, previous_roi, seen_before)
         if stalled_roi:
-            done = True
-            reward -= self.env_cfg.stalled_without_stop_penalty
+            if self.env_cfg.use_boundary_fix:
+                # ROI bi kep o bien (action hop le nhung khong di chuyen duoc) -> chi phat NHE, KHONG ket thuc
+                reward -= self.env_cfg.empty_slice_penalty
+            else:
+                done = True
+                reward -= self.env_cfg.stalled_without_stop_penalty
         if info["old_slice_overlap"] >= self.env_cfg.old_slice_overlap_threshold:
             done = True
             info["stop_due_to_old_overlap"] = True
@@ -484,9 +488,48 @@ class SliceEnv:
         return target_scores, hit_mask
 
     def _reward(self, action: Action, previous_roi: np.ndarray | None = None, seen_before: np.ndarray | None = None) -> tuple[float, dict]:
+        if self.env_cfg.use_gtfree_reward:
+            return self._gtfree_reward(action, previous_roi, seen_before)
         if self.env_cfg.use_simplified_reward:
             return self._simplified_reward(action, previous_roi, seen_before)
         return self._legacy_reward(action, previous_roi)
+
+    def _gtfree_reward(self, action: Action, previous_roi: np.ndarray | None = None, seen_before: np.ndarray | None = None) -> tuple[float, dict]:
+        """Reward GT-FREE: thuong cho ROI phu tin hieu QUAN SAT (density+objectness) CHUA tung thay.
+        Khong dung hard_boxes (GT) -> MDP luc train == luc infer (bo distribution shift)."""
+        cfg = self.env_cfg
+        seen = seen_before if seen_before is not None else np.zeros((self.state_cfg.grid_size, self.state_cfg.grid_size), dtype=np.float32)
+        gain = self._density_potential(self.roi, seen)        # [0,1] GT-free: density+obj CHUA thay trong ROI
+        observable = self._observable_target_score()          # GT-free: tong proposal-quality + objectness trong ROI
+        roi_area_ratio = self._roi_area_ratio()
+        scale_gain = self._scale_gain()
+        old_slice_overlap = self._old_slice_overlap()
+        reward = 0.0
+        info = {
+            "new_hits": 0, "hit_count": 0, "target_score": 0.0, "total_target_score": 0.0,
+            "retained_hits": 0, "compactness_score": 0.0, "compactness_delta": 0.0,
+            "observable_score": observable, "observable_delta": float(gain),
+            "roi_area_ratio": roi_area_ratio, "scale_gain": scale_gain,
+            "old_slice_overlap": old_slice_overlap, "detected_overlap": 0.0,
+        }
+        if action != Action.STOP:
+            reward += cfg.target_reward * cfg.gtfree_gain_weight * float(gain)
+        step_cost = 0.05 + roi_area_ratio * 0.5
+        reward -= cfg.efficiency_weight * step_cost
+        constraint_penalty = 0.0
+        if roi_area_ratio > cfg.max_roi_area_ratio:
+            constraint_penalty += roi_area_ratio / max(cfg.max_roi_area_ratio, 1e-6) - 1.0
+        if scale_gain < cfg.min_scale_gain:
+            constraint_penalty += cfg.min_scale_gain / max(scale_gain, 1e-6) - 1.0
+        if old_slice_overlap >= cfg.old_slice_overlap_threshold:
+            constraint_penalty += 1.0
+        reward -= cfg.constraint_weight * constraint_penalty
+        if action == Action.STOP:
+            if observable > 0.3 and old_slice_overlap < cfg.old_slice_overlap_threshold:
+                reward += cfg.stop_bonus_weight * 0.5 * min(observable, 2.0)
+            else:
+                reward -= cfg.stop_bonus_weight * 0.5
+        return float(reward), info
 
     def _simplified_reward(self, action: Action, previous_roi: np.ndarray | None = None, seen_before: np.ndarray | None = None) -> tuple[float, dict]:
         prev_covered = self.covered.copy()
