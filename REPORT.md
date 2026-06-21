@@ -126,6 +126,9 @@ Mỗi ảnh có **3 khung**: trái = YOLO nhìn cả ảnh · giữa = SAHI cắ
 <a id="s6"></a>
 ## 6. 📊 Kết quả bằng SỐ (bảng val + test)
 
+> 📁 **Nguồn số liệu (mở được, kiểm chứng được):** mọi con số dưới đây lấy thẳng từ file trong thư mục **`report_data/`**. Cột `images` trong file xác nhận **548** ảnh (val) và **1610** ảnh (test) — không phải số phỏng đoán.
+> · VAL: [`report_data/val_yield_clean.csv`](report_data/val_yield_clean.csv) · TEST: [`report_data/test_clean.csv`](report_data/test_clean.csv) · sweep density: `val_density.csv`, `test_density.csv`.
+
 **Giải thích cột:** *mAP* = điểm tổng độ chính xác (cao = tốt). *recall* = tỉ lệ vật nhỏ bắt được (cao = tốt). *FP/ảnh* = số báo nhầm (thấp = tốt). *ô cắt/ảnh* = chi phí (thấp = nhẹ).
 
 ### VAL — 548 ảnh
@@ -279,4 +282,16 @@ Adaptive-conf cho kết quả "đẹp đáng ngờ" (3 lần benchmark giống h
 
 ---
 
-> *Phụ lục số liệu: file `benchmark.csv` trong `_sync/` (val) và `runs/benchmark/test_clean/` (test 1610 ảnh). Hình: thư mục `report_figures/`.*
+## 📁 Phụ lục — Nguồn số liệu (provenance, mọi file mở được trong repo)
+
+| Kết quả | File | Số ảnh |
+|---|---|---|
+| Bảng VAL (rl_yield, SAHI, density, random) | `report_data/val_yield_clean.csv` | 548 |
+| Bảng TEST (rl_yield, SAHI, density, random) | `report_data/test_clean.csv` | 1610 |
+| Sweep density val (k2→k12) | `report_data/val_density.csv` | 548 |
+| Sweep density test (k2→k12) | `report_data/test_density.csv` | 1610 |
+| adaptive-conf gập về density (§8) | `report_data/val_adaptiveconf.csv` | 548 |
+| adaptive-conf bật lever (§8) | `report_data/val_ac_dedup.csv` | 548 |
+| Hình demo (§5) | `report_figures/*.jpg` | — |
+
+> ✅ Mỗi con số trong báo cáo **đối chiếu được** với cột tương ứng trong các file trên. Cột `images` xác nhận đúng cỡ tập (548 / 1610).
