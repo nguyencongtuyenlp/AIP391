@@ -18,6 +18,7 @@ from rl_sahi.common.data import read_image
 from rl_sahi.detection.yolo import load_yolo
 from rl_sahi.eval.benchmark import (
     BenchmarkConfig, _filter_classes, _fixed_grid_rois, _full_predictions, _merge_predictions, _predict_fixed_sahi,
+    _predict_rl_sahi,
 )
 from rl_sahi.inference.config import InferenceConfig
 from rl_sahi.inference.crops import run_yolo_on_crop
@@ -85,6 +86,7 @@ def main() -> None:
     ap.add_argument("--split", default="test")
     ap.add_argument("--out-dir", type=Path, default=ROOT / "runs" / "report")
     ap.add_argument("--gap", type=int, default=12, help="Khoang trang giua 3 panel (px).")
+    ap.add_argument("--slice", dest="slice_agent", action="store_true", help="Panel 3 dung agent DI-CHUYEN (SliceEnv) thay yield. Checkpoint phai la slice agent.")
     args = ap.parse_args()
 
     cfg = load_default_config(None, ROOT)
@@ -106,12 +108,18 @@ def main() -> None:
 
     yb, _, _ = _full_predictions(det, icfg)
     sb, _, _, sn = _predict_fixed_sahi(model, ip, det, icfg, bcfg)
-    rb, rprod, rn = _yield_rl_sahi(model, policy, ip, det, icfg, env_cfg, sc, tc, cm)
     sahi_rois = _fixed_grid_rois(det.image_shape, bcfg.fixed_slice_fraction, bcfg.fixed_overlap)
+
+    if args.slice_agent:  # agent DI-CHUYEN (SliceEnv)
+        rb, _, _, rn, rprod = _predict_rl_sahi(model, policy, torch.device("cpu"), ip, det, icfg, env_cfg, sc, return_rois=True)
+        p3_caption = f"3. RL-SAHI (di-chuyen): {len(rb)} vat ({rn} o)"
+    else:  # agent CHON-O (yield, mac dinh)
+        rb, rprod, rn = _yield_rl_sahi(model, policy, ip, det, icfg, env_cfg, sc, tc, cm)
+        p3_caption = f"3. RL-SAHI: {len(rb)} vat ({len(rprod)} o trung / {rn} quet)"
 
     p1 = _panel(image, yb, f"1. YOLO goc: {len(yb)} vat (1 o)")
     p2 = _panel(image, sb, f"2. SAHI (fixed grid): {len(sb)} vat ({sn} o)", rois=sahi_rois, roi_color=(0, 0, 255), roi_t=1)
-    p3 = _panel(image, rb, f"3. RL-SAHI: {len(rb)} vat ({len(rprod)} o trung / {rn} quet)", rois=rprod, roi_color=(0, 0, 255), roi_t=3)
+    p3 = _panel(image, rb, p3_caption, rois=rprod, roi_color=(0, 0, 255), roi_t=3)
     gap = np.full((p1.shape[0], args.gap, 3), 255, np.uint8)
     combo = np.hstack([p1, gap, p2, gap, p3])
 

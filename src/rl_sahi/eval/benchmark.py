@@ -175,7 +175,8 @@ def _predict_rl_sahi(
     cfg: InferenceConfig,
     env_cfg,
     state_cfg: StateConfig,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
+    return_rois: bool = False,
+):
     full_boxes, full_scores, full_classes = _full_predictions(det, cfg)
     slice_boxes_all: list[np.ndarray] = []
     slice_scores_all: list[np.ndarray] = []
@@ -259,6 +260,8 @@ def _predict_rl_sahi(
         [full_scores, *slice_scores_all],
         [full_classes, *slice_classes_all],
     )
+    if return_rois:
+        return boxes, scores, classes, len(accepted_rois), accepted_rois
     return boxes, scores, classes, len(accepted_rois)
 
 
