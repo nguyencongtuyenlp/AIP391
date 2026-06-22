@@ -524,11 +524,10 @@ class SliceEnv:
         if old_slice_overlap >= cfg.old_slice_overlap_threshold:
             constraint_penalty += 1.0
         reward -= cfg.constraint_weight * constraint_penalty
-        if action == Action.STOP:
-            if observable > 0.3 and old_slice_overlap < cfg.old_slice_overlap_threshold:
-                reward += cfg.stop_bonus_weight * 0.5 * min(observable, 2.0)
-            else:
-                reward -= cfg.stop_bonus_weight * 0.5
+        if action == Action.STOP and observable < 0.3:
+            # CHI phat khi dung o cho TRONG (chong dung som vo nghia); KHONG thuong dung -> agent
+            # tiep tuc cat chung nao con gain (chua thay) -> chong under-crop.
+            reward -= cfg.stop_bonus_weight * 0.5
         return float(reward), info
 
     def _simplified_reward(self, action: Action, previous_roi: np.ndarray | None = None, seen_before: np.ndarray | None = None) -> tuple[float, dict]:
